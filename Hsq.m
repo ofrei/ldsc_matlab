@@ -28,68 +28,23 @@ function [est, hsq] = Hsq(y, x, w, N, M, opts)
     % Note: this code skips the jackknife part.
     % This imply that the estimated regression coefficients are subject to
     % attenuation bias.
+    %
+    % TBD: chisq_max works slightly different from the original ldsc.py
 
     if ~exist('opts', 'var'), self = struct(); else self = opts; clear('opts'); end;
-    
     if ~isfield(self, 'intercept'), self.intercept = NaN; end;
     if ~isfield(self, 'two_step'), self.two_step = NaN; end;
-    self.constrain_intercept = isfinite(self.intercept);
+    if ~isfield(self, 'chisq_max'), self.chisq_max = NaN; end;
     self.null_intercept = 1.0;
-    self.n_annot = size(x, 2);
+    n_annot = size(x, 2);
+    M = double(M);
 
     % Default setting in LDSC is to use two-step estimator with cutoff 30.
-    if (self.n_annot == 1) && ~self.constrain_intercept && ~isfinite(self.two_step), self.two_step = 30; end;
-    
-    if isfinite(self.two_step) && self.constrain_intercept, error('twostep is not compatible with constrain_intercept'); end;
-    if isfinite(self.two_step) && self.n_annot > 1, error('twostep not compatible with partitioned LD Score yet'); end;
-    
-    if length(N) == 1, N = repmat(N, size(y)); end;
-    
-    defvec = isfinite(y + sum(x, 2) + w);
-    if self.n_annot > 1
-        chisq_max = max(0.001*max(N), 80);
-        %fprintf('Removed %i SNPs with chi^2 > %.2f\n', sum(y >= chisq_max), chisq_max);
-        defvec = defvec & (y < chisq_max);
-    end
-    
-    y = y(defvec); x = x(defvec, :); w = w(defvec); N = N(defvec);
-    
-    if isfinite(self.two_step), step1_ii = y < self.two_step; end;
-    
-    M_tot = sum(M);    % sum across annotation categories
-    x_tot = sum(x, 2);
-    tot_agg = aggregate(self, y, x_tot, N, M_tot);
-    initial_w = update_weights(self, x_tot, w, N, M_tot, tot_agg, self.intercept);
-    Nbar = mean(N);
-    x = (repmat(N, [1 self.n_annot]) .* x) / Nbar;
-    
-    if ~self.constrain_intercept
-        x = append_intercept(x);
-        x_tot = append_intercept(x_tot);
-        yp = y;
-    else
-        yp = y - self.intercept;
-    end
-    clear('y');
-    
-    if isfinite(self.two_step)
-        yp1 = yp(step1_ii); x1 = x(step1_ii, :); w1 = w(step1_ii);
-        N1 = N(step1_ii); initial_w1 = initial_w(step1_ii);
-        step1_est = IRWLS(x1, yp1, @(a)update_func(self, a, x1, w1, N1, M_tot, Nbar), initial_w1);
-        step1_int = step1_est(end);
-        yp = yp - step1_int;
-        x = remove_intercept(x);
-        x_tot = remove_intercept(x_tot);
-        est = IRWLS(x, yp, @(a)update_func(self, a, x_tot, w, N, M_tot, Nbar, step1_int), initial_w);
-        hsq = M_tot * est(1) / Nbar;
-    elseif self.n_annot > 1  % use old_weights=True
-        w = sqrt(initial_w);
-        est = wls(x, yp, w);
-        hsq = nan;
-    else
-        est = IRWLS(x, yp, @(a)update_func(self, a, x_tot, w, N, M_tot, Nbar), initial_w);
-        hsq = M_tot * est(1) / Nbar;
-    end
+    if (n_annot > 1) && ~isfinite(self.chisq_max), self.chisq_max = max(0.001*max(N), 80); end;
+    if (n_annot == 1) && ~isfinite(self.intercept) && ~isfinite(self.two_step), self.two_step = 30; end;
+
+    if isfinite(self.two_step), step1_ii = y < self.two_step; else step1_ii = []; end;
+    [est, hsq] = Ldsc(self, y, x, w, N, M, step1_ii, @update_func, @update_weights);
 end
 
 function w = update_weights(self, ld, w_ld, N, M, hsq, intercept)
@@ -123,27 +78,7 @@ function w = update_weights(self, ld, w_ld, N, M, hsq, intercept)
     w = het_w .* oc_w;
 end
 
-function tot_agg = aggregate(self, y, x, N, M)
-    %% Calculate an initial approximation for heritability (educated guess)
-    if isfinite(self.intercept), intercept = self.intercept; else intercept = self.null_intercept; end;
-    num = M * (mean(y) - intercept);
-    denom = mean(x .* N);
-    tot_agg = num / denom;
-end
-
-function x_new = append_intercept(x)
-    %% Appends an intercept term to the design matrix for a linear regression.
-    n_row = size(x, 1);
-    intercept = ones(n_row, 1);
-    x_new = [x, intercept];
-end
-
-function x_new = remove_intercept(x)
-    %% Removes the last column.
-    x_new = x(:, 1:end-1);
-end
-
-function w = update_func(self, x, ref_ld_tot, w_ld, N, M, Nbar, intercept)
+function w = update_func(self, x, ref_ld_tot, w_ld, N, M, Nbar, intercept, ii)
     %% Update function for IRWLS
     % x is the output of mldivide, e.g. regression coefficients
     % size(x) is (# of dimensions, 1)
@@ -164,33 +99,4 @@ function w = update_func(self, x, ref_ld_tot, w_ld, N, M, Nbar, intercept)
 
     ld = ref_ld_tot(:, 1);
     w = update_weights(self, ld, w_ld, N, M, hsq, intercept);
-end
-
-function est = IRWLS(x, y, update_func, w)
-    %% Iteratively re-weighted least squares (IRWLS).
-    %
-    % Parameters
-    % ----------
-    % x - matrix with shape (n, p), independent variable
-    % y - matrix with shape (n, 1), dependent variable
-    % update_func - transforms output of mldivide to new weights.
-    % w - initial regression weights
-    %
-    % Returns
-    % -------
-    % est - matrix with shape (1, p), regression weights
-    w = sqrt(w);
-    for i=1:2  % update this later
-        w = sqrt(update_func(wls(x, y, w)));
-    end
-    
-    est = wls(x, y, w);
-end
-
-function est = wls(x, y, w)
-    %% Weighted least squares
-    w = w / sum(w);
-    x = x .* repmat(w, [1, size(x, 2)]);
-    y = y .* w;
-    est = x \ y;  % mldivide
 end
