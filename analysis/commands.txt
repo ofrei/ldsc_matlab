@@ -1,0 +1,70 @@
+load 'eur_w_ld.mat'   
+x = annomat; w = annomat; 
+
+    M_5_50 - 1173569
+    annomat - 1190321 x 1
+    annonames - 'L2'
+
+load 'ldmat_1m_p1.mat'   
+
+trait1 = load('SCZ.mat');           # .zvec, .nvec ,   1190321 x 1
+trait2 = load('BIP.mat');
+
+corr(trait1.zvec, trait2.zvec, 'rows','complete');
+
+
+trait1 = load('SCZ.mat'); y = trait1.zvec .^ 2; N = trait1.nvec; [est, hsq] = Hsq(y, x, w, N, M_5_50); hsq   
+trait1 = load('BIP.mat'); y = trait1.zvec .^ 2; N = trait1.nvec; [est, hsq] = Hsq(y, x, w, N, M_5_50); hsq   
+trait1 = load('PTSD.mat'); y = trait1.zvec .^ 2; N = trait1.nvec; [est, hsq] = Hsq(y, x, w, N, M_5_50); hsq  
+trait1 = load('MDD.mat'); y = trait1.zvec .^ 2; N = trait1.nvec; [est, hsq] = Hsq(y, x, w, N, M_5_50); hsq   
+
+
+%opts = struct('intercept_hsq1', 1, 'intercept_hsq2', 1, 'intercept_gencov', nan);
+opts = struct('disable_update_weights', true);
+
+trait1 = load('SCZ.mat'); trait2 = load('BIP.mat'); [est, rg] = Rg(trait1.zvec, trait2.zvec, x, w, trait1.nvec, trait2.nvec, M_5_50, opts); rg   
+trait1 = load('SCZ.mat'); trait2 = load('MDD.mat'); [est, rg] = Rg(trait1.zvec, trait2.zvec, x, w, trait1.nvec, trait2.nvec, M_5_50, opts); rg   
+trait1 = load('SCZ.mat'); trait2 = load('PTSD.mat'); [est, rg] = Rg(trait1.zvec, trait2.zvec, x, w, trait1.nvec, trait2.nvec, M_5_50, opts); rg  
+trait1 = load('BIP.mat'); trait2 = load('MDD.mat'); [est, rg] = Rg(trait1.zvec, trait2.zvec, x, w, trait1.nvec, trait2.nvec, M_5_50, opts); rg   
+trait1 = load('BIP.mat'); trait2 = load('PTSD.mat'); [est, rg] = Rg(trait1.zvec, trait2.zvec, x, w, trait1.nvec, trait2.nvec, M_5_50, opts); rg  
+trait1 = load('MDD.mat'); trait2 = load('PTSD.mat'); [est, rg] = Rg(trait1.zvec, trait2.zvec, x, w, trait1.nvec, trait2.nvec, M_5_50, opts); rg  
+
+
+trait1_name = 'SCZ'; trait2_name = 'BIP';
+trait1_name = 'MDD'; trait2_name = 'PTSD';
+trait1_name = 'BIP'; trait2_name = 'MDD';
+trait1_name = 'BIP'; trait2_name = 'PTSD';
+trait1_name = 'SCZ'; trait2_name = 'MDD';
+trait1_name = 'SCZ'; trait2_name = 'PTSD';
+
+trait1 = load([trait1_name, '.mat']); trait2 = load([trait2_name, '.mat']); 
+z1 = trait1.zvec;
+z2 = trait2.zvec;
+N1 = trait1.nvec;
+N2 = trait2.nvec;
+ell = annomat;
+LDmat = LDr2_p1sparse;
+
+results = mixer_fit(z1, z2, ell, LDmat, N1, N2, M_5_50);
+
+[est, rg] = Rg(z1, z2, annomat, annomat, N1, N2, M_5_50);
+
+clabel_sig2_beta = arrayfun(@(x){sprintf('%0.4f',x)},  results.sig2_beta_grid * double(M_5_50));
+clabel_sig2_zero = arrayfun(@(x){sprintf('%0.4f',x)},  results.sig2_zero_grid);
+clabel_rho = arrayfun(@(x){sprintf('%0.2f',x)},  results.rho_grid);
+
+l = results.loglike; l = l - min(l(:)); l(l>3000) = nan; l(l == min(l(:))) = nan;
+heatmap(clabel_rho, fliplr(clabel_rho), flipud(l),  'Colormap',hot, 'XLabel', 'rho_zero', 'YLabel', 'rho_beta', 'Title', sprintf('%s vs %s, negative log-likelihood', trait1_name, trait2_name))
+saveas(gcf,sprintf('%s_vs_%s.loglike.png', trait1_name, trait2_name),'png')
+saveas(gcf,sprintf('%s_vs_%s.loglike.svg', trait1_name, trait2_name),'svg')
+
+l = results.loglike1; l = l - min(l(:)); l(l>3000) = nan; l(l == min(l(:))) = nan;
+heatmap(clabel_sig2_zero, fliplr(clabel_sig2_beta), flipud(l),  'Colormap',hot, 'XLabel', 'sig2_zero', 'YLabel', 'h2', 'Title', sprintf('%s, negative log-likelihood', trait1_name))
+saveas(gcf,sprintf('%s.loglike.png', trait1_name),'png')
+saveas(gcf,sprintf('%s.loglike.svg', trait1_name),'svg')
+
+l = results.loglike2; l = l - min(l(:)); l(l>3000) = nan; l(l == min(l(:))) = nan;
+heatmap(clabel_sig2_zero, fliplr(clabel_sig2_beta), flipud(l),  'Colormap',hot, 'XLabel', 'sig2_zero', 'YLabel', 'h2', 'Title', sprintf('%s, negative log-likelihood', trait2_name))
+saveas(gcf,sprintf('%s.loglike.png', trait2_name),'png')
+saveas(gcf,sprintf('%s.loglike.svg', trait2_name),'svg')
+

@@ -14,9 +14,10 @@ function [est, rg] = Rg(z1, z2, x, w, N1, N2, M, opts)
     %     equal number of SNPs included in the regression)
     % opts - struct with optional parameters:
     % opts.intercept_hsq1   - float, value to constrain intercept (first phenotype)
-    % opts.intercept_hsq1   - float, value to constrain intercept (second phenotype)
+    % opts.intercept_hsq2   - float, value to constrain intercept (second phenotype)
     % opts.intercept_gencov - float, value to constrain intercept (covariance).
     %                         NaN or missing field => unconstrained LD score regression
+    % opts.disable_update_weights   - true/false, whether to disable update weights
     % opts.two_step - float, test statistic bound for use with the two-step estimator.
     %                 Not compatible with opts.intercept_gencov.
     %                 Not compatible with partitioned LD scores.
@@ -32,12 +33,16 @@ function [est, rg] = Rg(z1, z2, x, w, N1, N2, M, opts)
     %
     % TBD: chisq_max works slightly different from the original ldsc.py
 
+    %defvec = isfinite(z1+z2+N1+N2) ; % & (x > 20);
+    %z1(~defvec)= NaN;    z2(~defvec)= NaN;    N1(~defvec)= NaN;    N2(~defvec)= NaN;
+
     if ~exist('opts', 'var'), opts = struct(); end;
     if ~isfield(opts, 'intercept_hsq1'), opts.intercept_hsq1 = NaN; end;
     if ~isfield(opts, 'intercept_hsq2'), opts.intercept_hsq2 = NaN; end;
     if ~isfield(opts, 'intercept_gencov'), opts.intercept_gencov = NaN; end;
     if ~isfield(opts, 'two_step'), opts.two_step = NaN; end;
     if ~isfield(opts, 'chisq_max'), opts.chisq_max = NaN; end;
+    if ~isfield(opts, 'disable_update_weights'), opts.disable_update_weights = false; end;
     n_annot = size(x, 2);
     M = double(M);
     
@@ -46,15 +51,18 @@ function [est, rg] = Rg(z1, z2, x, w, N1, N2, M, opts)
     [est1, hsq1] = Hsq(z1.^2, x, w, N1, M, opts);
     opts.intercept_hsq1 = est1(end);
     opts.hsq1 = hsq1;
+    fprintf('trait1: h2=%.3f intercept=%.3f\n', opts.hsq1,  opts.intercept_hsq1);
     
     opts.intercept = opts.intercept_hsq2;
     [est2, hsq2] = Hsq(z2.^2, x, w, N2, M, opts);
     opts.intercept_hsq2 = est2(end);
     opts.hsq2 = hsq2;
+    fprintf('trait2: h2=%.3f intercept=%.3f\n', opts.hsq2,  opts.intercept_hsq2);
     
     opts.intercept = opts.intercept_gencov;
     [est, gencov] = Gencov(z1, z2, x, w, N1, N2, M, opts);
     rg = gencov ./ sqrt(opts.hsq1 * opts.hsq2);
+    fprintf('rg=%.3f rg_intercept=%.3f\n', rg, est(end));
 end
 
 function [est, gencov] = Gencov(z1, z2, x, w, N1, N2, M, opts)
@@ -76,6 +84,11 @@ end
 
 function w = update_weights(self, ld, w_ld, sqrt_n1n2, M, rho_g, intercept_gencov, ii)
     %% Regression weights
+    if self.disable_update_weights
+        w = w_ld;
+        return
+    end
+
     if ~isfinite(intercept_gencov), intercept_gencov = self.null_intercept; end;
     if ~exist('ii', 'var'), ii=[]; end;
 

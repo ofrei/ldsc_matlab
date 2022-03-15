@@ -18,6 +18,7 @@ function [est, hsq] = Hsq(y, x, w, N, M, opts)
     % opts.two_step - float, test statistic bound for use with the two-step estimator.
     %                 Not compatible with opts.intercept.
     %                 Not compatible with partitioned LD scores.
+    % opts.disable_update_weights   - true/false, whether to disable update weights
     %
     % Returns
     % -------
@@ -35,6 +36,7 @@ function [est, hsq] = Hsq(y, x, w, N, M, opts)
     if ~isfield(self, 'intercept'), self.intercept = NaN; end;
     if ~isfield(self, 'two_step'), self.two_step = NaN; end;
     if ~isfield(self, 'chisq_max'), self.chisq_max = NaN; end;
+    if ~isfield(self, 'disable_update_weights'), self.disable_update_weights = false; end;
     self.null_intercept = 1.0;
     n_annot = size(x, 2);
     M = double(M);
@@ -65,6 +67,11 @@ function w = update_weights(self, ld, w_ld, N, M, hsq, intercept)
     % -------
     % w - matrix with shape [n_snp, 1], Regression weights.
     %     Approx equal to reciprocal of conditional variance function.
+
+    if self.disable_update_weights
+        w = w_ld;
+        return
+    end
 
     if ~isfinite(intercept), intercept = self.null_intercept; end;
 
